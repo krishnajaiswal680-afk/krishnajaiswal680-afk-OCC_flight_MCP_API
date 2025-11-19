@@ -1,0 +1,70 @@
+version: "3.9"
+
+services:
+
+  mongodb:
+    image: mongo:6.0
+    container_name: flightops-mongo
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root
+    command: ["mongod", "--bind_ip_all"]
+
+  redis:
+    image: redis:7.2
+    container_name: flightops-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+
+  mcp-server:
+    build:
+      context: .
+    container_name: flightops-mcp
+    restart: always
+    depends_on:
+      - mongodb
+    environment:
+      MONGO_URI: mongodb://root:root@mongodb:27017
+      MONGO_DB: flightops
+      MONGO_COLLECTION: flightlegs
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8000"
+    ports:
+      - "8000:8000"
+    command: ["python", "server.py"]
+
+  ag-ui-adapter:
+    build:
+      context: .
+    container_name: flightops-adapter
+    restart: always
+    depends_on:
+      - mcp-server
+      - redis
+    environment:
+      MCP_SERVER_URL: http://mcp-server:8000
+      AZURE_OPENAI_KEY: ${AZURE_OPENAI_KEY}
+      AZURE_OPENAI_ENDPOINT: ${AZURE_OPENAI_ENDPOINT}
+      AZURE_OPENAI_DEPLOYMENT: ${AZURE_OPENAI_DEPLOYMENT}
+      AZURE_API_VERSION: ${AZURE_API_VERSION}
+
+      # Redis internal Docker network config
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+      # Disable SSL for Docker local Redis
+      DISABLE_REDIS_SSL_VERIFY: 1
+
+    ports:
+      - "8001:8001"
+    command: ["python", "ag_ui_adapter.py"]
+
+volumes:
+  mongo_data:
